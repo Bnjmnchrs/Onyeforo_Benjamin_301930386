@@ -1,0 +1,121 @@
+erDiagram
+
+    CUSTOMER ||--o{ ADDRESS           : "has"
+    CUSTOMER ||--o{ SHOPPING_CART     : "owns"
+    CUSTOMER ||--o{ CUSTOMER_ORDER    : "places"
+
+    CATEGORY ||--o{ PRODUCT           : "contains"
+    CATEGORY |o--o{ CATEGORY          : "nests under"
+
+    PRODUCT  ||--o{ PRODUCT_ATTRIBUTE : "described by"
+    PRODUCT  ||--o{ PRODUCT_IMAGE     : "pictured in"
+    PRODUCT  ||--o{ CART_ITEM         : "appears in"
+    PRODUCT  ||--o{ ORDER_ITEM        : "sold as"
+
+    SHOPPING_CART ||--o{ CART_ITEM    : "contains"
+
+    CUSTOMER_ORDER ||--o{ ORDER_ITEM  : "contains"
+    CUSTOMER_ORDER ||--o{ PAYMENT     : "paid by"
+    CUSTOMER_ORDER ||--o{ SHIPMENT    : "delivered by"
+
+    CUSTOMER {
+        bigint customer_id PK
+        varchar first_name
+        varchar last_name
+        varchar email UK
+        varchar phone
+        timestamptz created_at
+        boolean is_active
+    }
+
+    ADDRESS {
+        bigint address_id PK
+        bigint customer_id FK
+        varchar address_line
+        varchar city
+        varchar region
+        varchar postal_code
+        char country
+        boolean is_default
+    }
+
+    CATEGORY {
+        bigint category_id PK
+        varchar name
+        bigint parent_id FK
+    }
+
+    PRODUCT {
+        bigint product_id PK
+        varchar sku UK
+        varchar name
+        text description
+        bigint category_id FK
+        numeric price
+        char currency
+        int stock_qty
+        boolean is_active
+    }
+
+    PRODUCT_ATTRIBUTE {
+        bigint attribute_id PK
+        bigint product_id FK
+        varchar attribute_name
+        varchar attribute_value
+    }
+
+    PRODUCT_IMAGE {
+        bigint image_id PK
+        bigint product_id FK
+        varchar url UK
+        varchar alt_text
+    }
+
+    SHOPPING_CART {
+        bigint cart_id PK
+        bigint customer_id FK
+        timestamptz created_at
+    }
+
+    CART_ITEM {
+        bigint cart_item_id PK
+        bigint cart_id FK
+        bigint product_id FK
+        int quantity
+    }
+
+    CUSTOMER_ORDER {
+        bigint order_id PK
+        bigint customer_id FK
+        timestamptz order_date
+        varchar status
+        numeric total
+    }
+
+    ORDER_ITEM {
+        bigint order_item_id PK
+        bigint order_id FK
+        bigint product_id FK
+        int quantity
+        numeric unit_price
+    }
+
+    PAYMENT {
+        bigint payment_id PK
+        bigint order_id FK
+        numeric amount
+        varchar method
+        varchar status
+        varchar reference
+        timestamptz created_at
+    }
+
+    SHIPMENT {
+        bigint shipment_id PK
+        bigint order_id FK
+        varchar carrier
+        varchar tracking_ref
+        varchar status
+        timestamptz dispatched_at
+        timestamptz delivered_at
+    }
