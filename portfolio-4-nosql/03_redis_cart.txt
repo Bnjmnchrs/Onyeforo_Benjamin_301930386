@@ -1,0 +1,160 @@
+# =========================================================================
+# MIT 8103 — Portfolio 4
+# NoSQL model 2 of 3: KEY-VALUE store (Redis)
+#
+# WHY A KEY-VALUE STORE HERE
+#   The shopping cart is the perfect key-value workload:
+#     * accessed ONLY by its key (cart:<customer_id>)
+#     * simple values (product -> quantity)
+#     * short-lived (abandoned carts expire)
+#     * no joins, no reporting, no ad-hoc queries
+#
+#   In the relational model a cart is 2 tables (shopping_cart, cart_item)
+#   plus joins to product for names/prices. In Redis it is ONE key.
+#
+# HOW TO RUN
+#   1. Start Redis:  docker run -d --name redis -p 6379:6379 redis:7
+#   2. Connect:      redis-cli
+#   3. Paste each block below.
+#
+# Verify you are connected first:
+#   PING          -> PONG
+#   DBSIZE        -> integer
+# =========================================================================
+
+# ---------------------------------------------------------------------------
+# 1. WRITE — build a cart
+# ---------------------------------------------------------------------------
+# Key design:  cart:<customer_id>
+# Type:        HASH  (field = product SKU, value = quantity)
+#
+# A hash is ideal because the whole cart is fetched with ONE command and
+# individual items can be added/removed without rewriting the whole value.
+
+HSET cart:1 SKU-HP-001 1
+HSET cart:1 SKU-CL-001 2
+HSET cart:1 SKU-CK-001 1
+
+# Expected output: (integer) 1 for each new field, 0 when updating an
+# existing field. That 0-vs-1 distinction is worth noting: Redis tells you
+# whether you created or updated.
+
+# Increment an existing item — atomic, no read-modify-write, no lock:
+HINCRBY cart:1 SKU-CL-001 1
+
+# Expected: (integer) 3
+
+
+# ---------------------------------------------------------------------------
+# 2. READ — fetch the whole cart in one operation
+# ---------------------------------------------------------------------------
+HGETALL cart:1
+
+# Expected:
+# 1) "SKU-HP-001"
+# 2) "1"
+# 3) "SKU-CL-001"
+# 4) "3"
+# 5) "SKU-CK-001"
+# 6) "1"
+
+# Read one item:
+HGET cart:1 SKU-CL-001        # -> "3"
+
+# How many distinct items:
+HLEN cart:1                   # -> (integer) 3
+
+# Does this cart contain a product?  (O(1) — no scan)
+HEXISTS cart:1 SKU-LP-001     # -> (integer) 0
+
+# Fetch several fields at once:
+HMGET cart:1 SKU-HP-001 SKU-CK-001
+
+
+# ---------------------------------------------------------------------------
+# 3. EXPIRY — abandoned carts clean themselves up
+# ---------------------------------------------------------------------------
+# This is something the relational schema in Portfolio 1 does NOT do: there
+# is no scheduled job deleting stale carts. Redis does it natively.
+
+TTL cart:1                    # -> (integer) -1  (no expiry set yet)
+
+# Give the cart 30 days (2,592,000 seconds) to live
+EXPIRE cart:1 2592000
+
+TTL cart:1                    # -> (integer) 2592000  (and counting down)
+
+# Prove it: set a 5-second cart and watch it vanish
+HSET cart:temp SKU-HP-002 1
+EXPIRE cart:temp 5
+TTL cart:temp                 # -> 5, 4, 3...
+# WAIT 5 SECONDS, then:
+EXISTS cart:temp              # -> (integer) 0   (key gone)
+
+
+# ---------------------------------------------------------------------------
+# 4. REMOVE — checkout empties the cart
+# ---------------------------------------------------------------------------
+HDEL cart:1 SKU-CK-001        # remove one line
+HGETALL cart:1                # now shows only 2 items
+
+DEL cart:1                    # remove the whole cart at checkout
+EXISTS cart:1                 # -> (integer) 0
+
+
+# ---------------------------------------------------------------------------
+# 5. COUNTERS — another natural key-value use
+# ---------------------------------------------------------------------------
+# Product view counter: incremented constantly, read for "trending" lists.
+# Atomic, no row lock, no lost update (contrast the race condition in
+# Portfolio 3 — here the increment is a single atomic operation).
+
+SET product:SKU-HP-001:views 0
+INCRBY product:SKU-HP-001:views 1
+INCRBY product:SKU-HP-001:views 1
+INCRBY product:SKU-HP-001:views 1
+GET product:SKU-HP-001:views     # -> "3"
+
+# A unique-visitor set: automatic de-duplication.
+SADD visitor:2026-11-13 user:1 user:2 user:3 user:1
+SCARD visitor:2026-11-13         # -> (integer) 3   (user:1 counted once)
+
+
+# ---------------------------------------------------------------------------
+# 6. CLEAN-UP
+# ---------------------------------------------------------------------------
+DEL product:SKU-HP-001:views
+DEL visitor:2026-11-13
+DBSIZE                          # should be back to a small number
+
+
+# =========================================================================
+# SUITABILITY SUMMARY — for the write-up
+# =========================================================================
+#
+# WHY Redis IS right for this data
+#   * Key-value access pattern: get/put by cart id, nothing else needed
+#   * Sub-millisecond reads; carts are on the critical checkout path
+#   * Native TTL solves cart abandonment without a cron job
+#   * Atomic INCR / HINCRBY remove the lost-update problem entirely
+#   * Volatile by nature — losing a cart on restart is acceptable
+#
+# WHY Redis is NOT right for everything
+#   * No joins: to render a cart page with product names and current
+#     prices you must make extra round-trips (the N+1 problem) or cache
+#     product documents separately
+#   * No ad-hoc queries: "all carts containing SKU-HP-001" requires a
+#     secondary index you maintain yourself
+#   * No transactions across keys with rollback semantics like SQL's
+#     (Redis has MULTI/EXEC, but no rollback on constraint failure)
+#   * Memory-resident: expensive relative to disk; do not store the
+#     catalogue here
+#
+# THE HONEST ARCHITECTURE
+#   PostgreSQL  -> orders, payments, stock, reporting  (source of truth)
+#   MongoDB     -> product catalogue (heterogeneous attributes)
+#   Redis       -> shopping carts, sessions, counters (ephemeral, fast)
+#
+# That combination — polyglot persistence — is the actual lesson of
+# Portfolio 4: pick the model that fits the ACCESS PATTERN, not the one
+# you already know.
