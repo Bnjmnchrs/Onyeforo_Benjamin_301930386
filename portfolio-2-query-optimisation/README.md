@@ -209,11 +209,20 @@ measured figures matter more than the prose.
 
 | Experiment | Query                | Before (Execution Time) | After (Execution Time) | Plan change                      |
 | ---------- | -------------------- | ----------------------- | ---------------------- | -------------------------------- |
-| 1          | Low-stock report     | \_\_\_\_ ms             | \_\_\_\_ ms            | Seq Scan → Index/Bitmap Scan     |
+| 1          | Low-stock report     | 0.327 ms                | 1.207 ms               | Seq Scan → Bitmap Index Scan     |
 | 2          | Category price band  | \_\_\_\_ ms             | \_\_\_\_ ms            | Seq Scan → Composite Index Scan  |
 | 3          | Pending orders queue | \_\_\_\_ ms             | \_\_\_\_ ms            | Seq Scan → Partial Index Scan    |
 | 4          | Order line lookup    | \_\_\_\_ ms             | \_\_\_\_ ms            | Index Scan → **Index Only Scan** |
 | 5          | Product by name      | \_\_\_\_ ms             | \_\_\_\_ ms            | Seq Scan → Index Scan            |
+Experiment 1 did not show the speed-up the README predicted. Before the index,
+PostgreSQL used a sequential scan on the 1,008-row product table, which took
+0.327 ms and removed 957 rows with a filter. After I created the partial index
+on stock_qty (WHERE is_active), the planner used a Bitmap Index Scan on
+ix_product_stock, which took 1.207 ms. The plan changed as expected, but the
+query ran slower. At this size, reading the whole table is cheap, and the
+index adds a bitmap step and heap access. The partial index should help more
+on a larger table where the low-stock filter matches a smaller share of rows.
+These are single runs, so the timings are indicative rather than precise.
 
 ### What the results are expected to show
 
